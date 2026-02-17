@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Calc Duel</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- MENU SCREEN -->
+    <section id="menuScreen" class="screen">
+      <div class="menuCard">
+        <div class="brand">
+          <div class="logoDot"></div>
+          <div>
+            <h1>Calc Duel</h1>
+            <p class="muted">Scratchpad calculus speed game (demo vs bot)</p>
+          </div>
+        </div>
+
+        <div class="menuGrid">
+          <div class="menuItem">
+            <label for="menuDiff">Difficulty</label>
+            <select id="menuDiff">
+              <option value="easy" selected>Easy</option>
+              <option value="medium">Medium</option>
+              <option value="hard">Hard</option>
+            </select>
+          </div>
+
+          <div class="menuItem">
+            <label for="menuDuration">Round duration</label>
+            <select id="menuDuration">
+              <option value="60">60s</option>
+              <option value="90" selected>90s</option>
+              <option value="120">120s</option>
+              <option value="180">180s</option>
+            </select>
+          </div>
+
+          <div class="menuItem">
+            <label for="menuBot">Bot strength</label>
+            <select id="menuBot">
+              <option value="chill" selected>Chill</option>
+              <option value="normal">Normal</option>
+              <option value="cracked">Cracked</option>
+            </select>
+          </div>
+
+          <div class="menuItem">
+            <label for="menuPen">Pen thickness</label>
+            <select id="menuPen">
+              <option value="2">Thin</option>
+              <option value="3" selected>Normal</option>
+              <option value="5">Thick</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="menuActions">
+          <button id="readyBtn" class="primary big">Ready</button>
+          <button id="howBtn" class="ghost">How it works</button>
+        </div>
+
+        <div id="howBox" class="how hidden">
+          <ul>
+            <li>Use the scratchpad to work.</li>
+            <li>Type the <b>final numeric answer</b> and submit.</li>
+            <li>The bot submits after a delay; sometimes wrong.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- GAME SCREEN -->
+    <section id="gameScreen" class="screen hidden">
+      <header class="gameTop">
+        <div class="topLeft">
+          <div class="pill">You: <span id="youScore">0</span></div>
+          <div class="pill">Bot: <span id="botScore">0</span></div>
+          <div class="pill">Streak: <span id="streak">0</span></div>
+        </div>
+
+        <div class="topRight">
+          <div class="timerPill">
+            <span class="muted">Time:</span> <span id="time">0.00</span>s
+            <div class="barOuter"><div id="bar" class="barInner"></div></div>
+          </div>
+        </div>
+      </header>
+
+      <div class="questionBar">
+        <div id="question" class="questionText">Question will appear here</div>
+      </div>
+
+      <div class="workspace">
+        <div class="toolsRow">
+          <div class="tools">
+            <button id="penBtn" class="tool active">Pen</button>
+            <button id="eraserBtn" class="tool">Eraser</button>
+            <button id="undoBtn" class="tool">Undo</button>
+            <button id="clearBtn" class="tool danger">Clear</button>
+          </div>
+
+          <div class="answerArea">
+            <div class="answerStack">
+              <div class="inlineStatus" id="inlineStatus"> </div>
+              <div class="answerRow2">
+                <input id="answer" type="text" placeholder="Final answer (e.g. 7/2 or 3.5)" />
+                <button id="submitBtn" class="primary">Submit</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="canvasWrap paper">
+          <canvas id="pad" width="1600" height="1000"></canvas>
+        </div>
+      </div>
+
+      <div class="bottomBar">
+        <div id="status" class="status muted">Ready.</div>
+
+        <div class="bottomRight">
+          <button id="nextBtn" class="ghost" disabled>Next</button>
+          <button id="resetBtn" class="danger">Reset</button>
+        </div>
+      </div>
+
+      <!-- Countdown overlay -->
+      <div id="countdown" class="countdown hidden">
+        <div id="countText" class="countText">3</div>
+      </div>
+
+      <!-- Result overlay -->
+      <div id="resultOverlay" class="resultOverlay hidden" role="dialog" aria-modal="true">
+        <div class="resultCard">
+          <div id="resultTitle" class="resultTitle">Bot wins</div>
+          <div id="resultSubtitle" class="resultSubtitle muted">You can’t keep playing this round.</div>
+
+          <div class="resultActions">
+            <button id="resultNext" class="primary">Next round</button>
+            <button id="resultMenu" class="ghost">Menu</button>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>

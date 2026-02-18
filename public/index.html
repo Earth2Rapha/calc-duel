@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Calc Duel</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+
+<!-- MENU -->
+<section id="menuScreen" class="screen" data-display="flex">
+  <div class="spread">
+    <aside class="datesCol">
+      <div class="dateItem active" data-tab="create"><div class="bigNum">08</div><div class="smallLabel">Create</div></div>
+      <div class="dateItem" data-tab="join"><div class="bigNum">09</div><div class="smallLabel">Join</div></div>
+      <div class="dateItem" data-tab="bot"><div class="bigNum">10</div><div class="smallLabel">Bot</div></div>
+      <div class="dateItem" data-tab="how"><div class="bigNum">11</div><div class="smallLabel">How</div></div>
+      <div class="footerTiny">Calc Duel — menu</div>
+    </aside>
+
+    <div class="spine"></div>
+
+    <main class="page">
+      <header class="pageHeader">
+        <div>
+          <h1>Calc Duel</h1>
+          <div class="subtitle">Multiplayer + bot • scratchpad • spectate</div>
+        </div>
+      </header>
+
+      <div class="ruleLine"></div>
+
+      <div class="tab" id="tab-create">
+        <h2>Create a lobby</h2>
+
+        <div class="formGrid">
+          <div class="field">
+            <label>Your name</label>
+            <input id="menuName" value="Raph"/>
+          </div>
+
+          <div class="field">
+            <label>Difficulty</label>
+            <select id="menuDiff">
+              <option value="easy" selected>Easy</option>
+              <option value="medium">Medium</option>
+              <option value="hard">Hard</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Duration</label>
+            <select id="menuDuration">
+              <option value="60">60s</option>
+              <option value="90" selected>90s</option>
+              <option value="120">120s</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Questions</label>
+            <select id="menuQuestions">
+              <option value="3">3</option>
+              <option value="5" selected>5</option>
+              <option value="7">7</option>
+              <option value="9">9</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Pen</label>
+            <select id="menuPen">
+              <option value="2">Thin</option>
+              <option value="3" selected>Normal</option>
+              <option value="5">Thick</option>
+            </select>
+          </div>
+
+          <div class="noteBox">
+            <div class="noteTitle">Tip</div>
+            <div class="noteText">After you lock, you’ll instantly see their current working (snapshot) + live strokes.</div>
+          </div>
+        </div>
+
+        <div class="menuActions">
+          <button id="createLobbyBtn" class="primaryBtn">Create lobby</button>
+        </div>
+
+        <div id="menuError" class="menuError hidden"></div>
+      </div>
+
+      <div class="tab hidden" id="tab-join">
+        <h2>Join a lobby</h2>
+
+        <div class="formGrid">
+          <div class="field">
+            <label>Your name</label>
+            <input id="menuNameJoinMirror" disabled />
+            <div class="hint">Uses the name from Create tab.</div>
+          </div>
+
+          <div class="field">
+            <label>Code</label>
+            <input id="menuCode" placeholder="ABCDE"/>
+          </div>
+        </div>
+
+        <div class="menuActions">
+          <button id="joinLobbyBtn" class="primaryBtn">Join lobby</button>
+        </div>
+
+        <div id="menuError2" class="menuError hidden"></div>
+      </div>
+
+      <div class="tab hidden" id="tab-bot">
+        <h2>Play vs Bot</h2>
+        <p class="p">Bot doesn’t draw, so spectating is disabled in bot mode.</p>
+        <button id="botBtn" class="primaryBtn">Start bot match</button>
+      </div>
+
+      <div class="tab hidden" id="tab-how">
+        <h2>How it works</h2>
+        <ul class="p">
+          <li>Create → share code → friend joins → both ready.</li>
+          <li>Draw your working. Lock answer when done.</li>
+          <li>When you lock, you spectate the opponent’s scratchpad live.</li>
+          <li>Match ends after selected question count.</li>
+        </ul>
+      </div>
+    </main>
+  </div>
+</section>
+
+<!-- LOBBY -->
+<section id="lobbyScreen" class="screen hidden" data-display="flex">
+  <div class="paperCard wide">
+    <div class="paperTop">
+      <div>
+        <h2>Waiting Room</h2>
+        <div id="joinPrompt" class="muted">Waiting for opponent…</div>
+      </div>
+
+      <div class="codeBox">
+        <div class="mutedTiny">Lobby code</div>
+        <div id="lobbyCode" class="codeText">-----</div>
+        <button id="copyCodeBtn" class="smallBtn">Copy</button>
+        <div id="lobbyStatus" class="mutedTiny"></div>
+      </div>
+    </div>
+
+    <div class="paperGrid2">
+      <div>
+        <div class="sectionTitle">Players</div>
+        <div id="playerList" class="listBox"></div>
+      </div>
+      <div>
+        <div class="sectionTitle">Settings</div>
+        <div class="kv">
+          <div>Difficulty</div><div id="roomDiff">—</div>
+          <div>Duration</div><div id="roomDur">—</div>
+          <div>Questions</div><div id="roomQ">—</div>
+          <div>Pen</div><div id="roomPen">—</div>
+        </div>
+
+        <div class="actionsRow">
+          <button id="readyUpBtn" class="primaryBtn">Ready</button>
+          <button id="leaveLobbyBtn" class="ghostBtn">Leave</button>
+        </div>
+
+        <div id="lobbySub" class="mutedTiny">—</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- GAME -->
+<section id="gameScreen" class="screen hidden" data-display="flex">
+  <div class="paperCard game">
+
+    <div class="hud">
+      <div class="pill">You: <span id="youScore">0</span></div>
+      <div class="pill">Opponent: <span id="oppScore">0</span></div>
+
+      <div class="timerPill">
+        <div class="mutedTiny">Time: <span id="time">0.0</span>s</div>
+        <div class="barOuter"><div id="bar" class="barInner"></div></div>
+      </div>
+    </div>
+
+    <div class="qCard">
+      <div id="question" class="qText">Question will appear here</div>
+      <div id="status" class="mutedTiny"></div>
+    </div>
+
+    <div class="toolsRow">
+      <button id="penBtn" class="toolBtn active">Pen</button>
+      <button id="eraserBtn" class="toolBtn">Eraser</button>
+      <button id="undoBtn" class="toolBtn">Undo</button>
+      <button id="clearBtn" class="toolBtn danger">Clear</button>
+
+      <div class="spacer"></div>
+
+      <input id="answer" class="answerInput" placeholder="Final answer"/>
+      <button id="submitBtn" class="primaryBtn">Lock</button>
+      <button id="giveUpBtn" class="ghostBtn">Give up</button>
+      <button id="leaveBtn" class="ghostBtn">Leave</button>
+    </div>
+
+    <div id="inlineStatus" class="mutedTiny"></div>
+
+    <div id="spectateBadge" class="spectateBadge hidden">Spectating opponent…</div>
+
+    <div id="canvasGrid" class="canvasGrid">
+      <div class="canvasPane">
+        <div class="canvasLabel">Your scratchpad</div>
+        <div class="canvasWrap"><canvas id="pad"></canvas></div>
+      </div>
+
+      <div id="oppPane" class="canvasPane hidden">
+        <div class="canvasLabel">Opponent scratchpad</div>
+        <div class="canvasWrap"><canvas id="oppPad"></canvas></div>
+      </div>
+    </div>
+
+    <!-- overlays -->
+    <div id="roundOverlay" class="overlay hidden">
+      <div class="overlayCard">
+        <div id="roundTitle" class="overlayTitle">Round result</div>
+        <div id="roundSubtitle" class="muted">Next round starting…</div>
+        <div class="mutedTiny">Continuing in <span id="roundNextIn">2</span>…</div>
+      </div>
+    </div>
+
+    <div id="matchOverlay" class="overlay hidden">
+      <div class="overlayCard">
+        <div id="matchTitle" class="overlayTitle">Match result</div>
+        <div id="matchSubtitle" class="muted">Final score…</div>
+        <div class="overlayActions">
+          <button id="backLobbyBtn" class="primaryBtn">Back to lobby</button>
+          <button id="backMenuBtn" class="ghostBtn">Back to menu</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

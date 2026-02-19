@@ -6,10 +6,8 @@ const { Server } = require("socket.io");
 const app = express();
 const server = http.createServer(app);
 
-// IMPORTANT: allow bigger payloads (snapshots)
-const io = new Server(server, {
-  maxHttpBufferSize: 8e6 // 8 MB
-});
+// allow larger payloads for spectate snapshots
+const io = new Server(server, { maxHttpBufferSize: 8e6 });
 
 const PORT = process.env.PORT || 3000;
 app.use(express.static(path.join(__dirname, "..", "public")));
@@ -17,7 +15,7 @@ app.use(express.static(path.join(__dirname, "..", "public")));
 server.listen(PORT, () => console.log(`Server on http://localhost:${PORT}`));
 
 /* =========================
-   Questions
+   Question bank
 ========================= */
 const Q = (prompt, answer) => ({ prompt, answer: String(answer) });
 
@@ -32,7 +30,7 @@ const QUESTIONS = {
     Q("Compute ∫₀¹ 6x dx", "3"),
     Q("Differentiate: d/dx (x²)", "2x"),
     Q("Compute ∫₀³ 2 dx", "6"),
-    Q("If f(x)=x², what is f(5)?", "25")
+    Q("If f(x)=x², what is f(5)?", "25"),
   ],
   medium: [
     Q("Differentiate: d/dx (x² sin x)", "2xsinx+x^2cosx"),
@@ -40,15 +38,15 @@ const QUESTIONS = {
     Q("If f(x)=ln(x), what is f′(e)?", "1/e"),
     Q("Differentiate: d/dx (e^{3x})", "3e^{3x}"),
     Q("Compute ∫₀^{π} sin x dx", "2"),
-    Q("Differentiate: d/dx ((x+1)/x)", "-1/x^2")
+    Q("Differentiate: d/dx ((x+1)/x)", "-1/x^2"),
   ],
   hard: [
     Q("Differentiate: d/dx (ln(x²+1))", "2x/(x^2+1)"),
     Q("Compute ∫₀¹ 1/(1+x²) dx", "pi/4"),
     Q("Differentiate: d/dx (x^x)", "x^x(lnx+1)"),
     Q("Compute ∫₁^{e} 1/x dx", "1"),
-    Q("Differentiate: d/dx (sin(3x))", "3cos(3x)")
-  ]
+    Q("Differentiate: d/dx (sin(3x))", "3cos(3x)"),
+  ],
 };
 
 function pickQuestion(diff) {
@@ -57,7 +55,7 @@ function pickQuestion(diff) {
 }
 
 /* =========================
-   Answer check (simple)
+   Answer checking
 ========================= */
 function normalize(s) {
   return String(s ?? "")
@@ -98,7 +96,7 @@ function answersMatch(user, correct) {
 }
 
 /* =========================
-   Rooms
+   Rooms + match stats
 ========================= */
 function makeCode() {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -114,7 +112,18 @@ function snapshot(room) {
     code: room.code,
     mode: room.mode,
     settings: room.settings,
-    players: room.players.map(p => ({ id: p.id, name: p.name, ready: p.ready }))
+    players: room.players.map(p => ({ id: p.id, name: p.name, ready: p.ready, rank: p.rank || null })),
+    match: { started: !!room.match?.started }
+  };
+}
+
+function normalizeRank(rank) {
+  if (!rank || typeof rank !== "object") return null;
+  const elo = Number(rank.elo);
+  return {
+    elo: Number.isFinite(elo) ? Math.max(0, Math.round(elo)) : 800,
+    label: String(rank.label || "Bronze III").slice(0, 32),
+    css: String(rank.css || "badge-bronze").slice(0, 32),
   };
 }
 
@@ -132,21 +141,76 @@ function bothLocked(room) {
   return room.players.length === 2 && room.players.every(p => p.locked);
 }
 
+function winnersArray(room) {
+  return room.players.map(p => ({ id: p.id, wins: p.wins || 0, name: p.name }));
+}
+
 function resetRoundLocks(room) {
   for (const p of room.players) {
     p.locked = false;
     p.correct = false;
+    p.answerText = "";
+    p.lockMs = null;
+    p.gaveUp = false;
   }
 }
 
-function winnersArray(room) {
-  return room.players.map(p => ({ id: p.id, wins: p.wins || 0 }));
+function calcSummary(room) {
+  const perPlayer = {};
+  for (const p of room.players) {
+    perPlayer[p.id] = {
+      id: p.id,
+      name: p.name,
+      wins: p.wins || 0,
+      roundsPlayed: 0,
+      correctCount: 0,
+      giveUpCount: 0,
+      avgLockSec: null,
+      fastestCorrectSec: null
+    };
+  }
+
+  const rounds = room.matchStats.rounds || [];
+  for (const r of rounds) {
+    for (const pid of Object.keys(r.players)) {
+      const ps = perPlayer[pid];
+      if (!ps) continue;
+      ps.roundsPlayed += 1;
+
+      const pr = r.players[pid];
+      if (pr.gaveUp) ps.giveUpCount += 1;
+      if (pr.correct) {
+        ps.correctCount += 1;
+        if (typeof pr.lockSec === "number") {
+          if (ps.fastestCorrectSec == null || pr.lockSec < ps.fastestCorrectSec) {
+            ps.fastestCorrectSec = pr.lockSec;
+          }
+        }
+      }
+    }
+  }
+
+  // avg lock time (all locks incl wrong + giveup? we'll exclude giveup)
+  for (const pid of Object.keys(perPlayer)) {
+    let sum = 0, n = 0;
+    for (const r of rounds) {
+      const pr = r.players[pid];
+      if (!pr) continue;
+      if (pr.gaveUp) continue;
+      if (typeof pr.lockSec === "number") { sum += pr.lockSec; n += 1; }
+    }
+    perPlayer[pid].avgLockSec = n ? (sum / n) : null;
+  }
+
+  return { perPlayer, rounds };
 }
 
 function pickRoundWinner(room) {
-  const correct = room.players.filter(p => p.correct);
-  if (correct.length === 1) return correct[0].id;
-  return null;
+  // first correct lock wins, else null tie
+  const correctPlayers = room.players.filter(p => p.correct && typeof p.lockMs === "number");
+  if (correctPlayers.length === 0) return null;
+  correctPlayers.sort((a, b) => a.lockMs - b.lockMs);
+  return correctPlayers[0].id;
 }
 
 function botSchedule(room) {
@@ -164,42 +228,72 @@ function botSchedule(room) {
     if (bot.locked) return;
 
     bot.locked = true;
+    bot.gaveUp = false;
     bot.correct = Math.random() < acc;
+    bot.answerText = bot.correct ? room.match.q.answer : "…";
+    bot.lockMs = Date.now() - room.match.roundStartMs;
 
-    io.to(room.code).emit("lock_update", { playerId: bot.id, locked: true, correct: bot.correct });
+    io.to(room.code).emit("lock_update", {
+      playerId: bot.id,
+      locked: true,
+      correct: bot.correct,
+      gaveUp: false
+    });
 
     if (bothLocked(room)) {
       const winnerId = pickRoundWinner(room);
-      endRound(room, winnerId);
+      endRound(room, winnerId, "locked");
     }
   }, delay);
 }
 
-function startRound(room) {
+function startMatch(room) {
   room.match.started = true;
-  room.match.roundIndex += 1;
+  room.match.roundIndex = 0;
   room.match.totalRounds = room.settings.questionsTotal;
 
-  resetRoundLocks(room);
-  room.match.q = pickQuestion(room.settings.diff);
+  for (const p of room.players) p.wins = 0;
 
-  io.to(room.code).emit("match_begin");
+  room.matchStats = {
+    startedAt: Date.now(),
+    rounds: []
+  };
+
+  io.to(room.code).emit("match_begin", {
+    totalRounds: room.match.totalRounds,
+    settings: room.settings,
+    players: room.players.map(p => ({ id: p.id, name: p.name, rank: p.rank || null }))
+  });
+
+  startRound(room);
+}
+
+function startRound(room) {
+  room.match.roundIndex += 1;
+  room.match.q = pickQuestion(room.settings.diff);
+  room.match.roundStartMs = Date.now();
+
+  resetRoundLocks(room);
+
   io.to(room.code).emit("round_start", {
     roundIndex: room.match.roundIndex,
     totalRounds: room.match.totalRounds,
     durationSec: room.settings.durationSec,
-    question: room.match.q.prompt
+    question: room.match.q.prompt,
   });
 
   if (room.match.timer) clearTimeout(room.match.timer);
-  room.match.timer = setTimeout(() => endRound(room, null), room.settings.durationSec * 1000);
+  room.match.timer = setTimeout(() => {
+    const winnerId = pickRoundWinner(room);
+    endRound(room, winnerId, "time");
+  }, room.settings.durationSec * 1000);
 
   if (room.mode === "bot") botSchedule(room);
 
   emitRoom(room);
 }
 
-function endRound(room, winnerId) {
+function endRound(room, winnerId, reason) {
   if (!room.match?.started) return;
 
   if (room.match.timer) {
@@ -212,50 +306,83 @@ function endRound(room, winnerId) {
     if (w) w.wins = (w.wins || 0) + 1;
   }
 
+  // store round stats
+  const roundIndex = room.match.roundIndex;
+  const q = room.match.q;
+
+  const roundObj = {
+    roundIndex,
+    prompt: q.prompt,
+    correctAnswer: q.answer,
+    winnerId: winnerId || null,
+    reason,
+    players: {}
+  };
+
+  for (const p of room.players) {
+    roundObj.players[p.id] = {
+      name: p.name,
+      answerText: p.answerText || "",
+      correct: !!p.correct,
+      gaveUp: !!p.gaveUp,
+      lockSec: typeof p.lockMs === "number" ? Math.round((p.lockMs / 1000) * 100) / 100 : null
+    };
+  }
+
+  room.matchStats.rounds.push(roundObj);
+
   io.to(room.code).emit("round_end", {
-    winnerId,
-    winners: winnersArray(room)
+    winnerId: winnerId || null,
+    reason,
+    winners: winnersArray(room),
+    reveal: roundObj, // includes answers + correct answer
   });
 
-  const r = room.match.roundIndex;
-  const total = room.match.totalRounds;
+  // match done?
+  if (roundIndex >= room.match.totalRounds) {
+    const summary = calcSummary(room);
 
-  if (r >= total) {
-    const [a, b] = room.players;
-    let final = { type: "tie" };
-    if (a && b) {
-      if ((a.wins || 0) > (b.wins || 0)) final = { type: "win", winnerId: a.id };
-      else if ((b.wins || 0) > (a.wins || 0)) final = { type: "win", winnerId: b.id };
-    } else if (a) {
-      final = { type: "win", winnerId: a.id };
+    // decide match winner by wins
+    let winner = null;
+    if (room.players.length >= 2) {
+      const a = room.players[0], b = room.players[1];
+      if ((a.wins || 0) > (b.wins || 0)) winner = a.id;
+      else if ((b.wins || 0) > (a.wins || 0)) winner = b.id;
+    } else if (room.players[0]) {
+      winner = room.players[0].id;
     }
 
-    io.to(room.code).emit("match_end", { final, winners: winnersArray(room) });
+    io.to(room.code).emit("match_end", {
+      winnerId: winner,
+      winners: winnersArray(room),
+      summary
+    });
+
     room.match.started = false;
     emitRoom(room);
     return;
   }
 
+  // next round after a short pause
   setTimeout(() => startRound(room), 2200);
 }
 
 /* =========================
-   Socket.io
+   Socket.io handlers
 ========================= */
 io.on("connection", (socket) => {
 
-  // Live drawing relay
+  // drawing relay (multiplayer only)
   socket.on("draw_event", ({ code, type, data }) => {
     code = String(code || "").trim().toUpperCase();
     const room = rooms.get(code);
     if (!room) return;
     if (!room.match?.started) return;
     if (room.mode !== "multi") return;
-
     socket.to(code).emit("draw_event", { from: socket.id, type, data: data || {} });
   });
 
-  // Spectate snapshot request
+  // spectate snapshot request
   socket.on("spectate:request", ({ code }) => {
     code = String(code || "").trim().toUpperCase();
     const room = rooms.get(code);
@@ -263,13 +390,12 @@ io.on("connection", (socket) => {
     socket.to(code).emit("spectate:requestState", { requesterId: socket.id });
   });
 
-  // Snapshot forward
   socket.on("spectate:state", ({ to, img }) => {
     if (!to || !img) return;
     io.to(to).emit("spectate:state", { img });
   });
 
-  socket.on("create_room", ({ name, settings }) => {
+  socket.on("create_room", ({ name, settings, profile }) => {
     let code;
     do { code = makeCode(); } while (rooms.has(code));
 
@@ -283,9 +409,13 @@ io.on("connection", (socket) => {
         penWidth: Number(settings?.penWidth || 3)
       },
       players: [
-        { id: socket.id, name: name || "Player 1", ready: false, locked: false, correct: false, wins: 0 }
+        {
+          id: socket.id, name: name || "Player 1", ready: false, locked: false, correct: false, wins: 0,
+          rank: normalizeRank(profile)
+        }
       ],
-      match: { started: false, roundIndex: 0, totalRounds: 0, q: null, timer: null }
+      match: { started: false, roundIndex: 0, totalRounds: 0, q: null, timer: null, roundStartMs: null },
+      matchStats: { startedAt: null, rounds: [] }
     };
 
     rooms.set(code, room);
@@ -295,7 +425,7 @@ io.on("connection", (socket) => {
     emitRoom(room);
   });
 
-  socket.on("create_bot_room", ({ name, settings }) => {
+  socket.on("create_bot_room", ({ name, settings, profile }) => {
     let code;
     do { code = makeCode(); } while (rooms.has(code));
 
@@ -309,10 +439,17 @@ io.on("connection", (socket) => {
         penWidth: Number(settings?.penWidth || 3)
       },
       players: [
-        { id: socket.id, name: name || "You", ready: false, locked: false, correct: false, wins: 0 },
-        { id: `bot_${code}`, name: "Bot", ready: true, locked: false, correct: false, wins: 0 }
+        {
+          id: socket.id, name: name || "You", ready: false, locked: false, correct: false, wins: 0,
+          rank: normalizeRank(profile)
+        },
+        {
+          id: `bot_${code}`, name: "Bot", ready: true, locked: false, correct: false, wins: 0,
+          rank: { elo: 1000, label: "Silver I", css: "badge-silver" }
+        }
       ],
-      match: { started: false, roundIndex: 0, totalRounds: 0, q: null, timer: null }
+      match: { started: false, roundIndex: 0, totalRounds: 0, q: null, timer: null, roundStartMs: null },
+      matchStats: { startedAt: null, rounds: [] }
     };
 
     rooms.set(code, room);
@@ -322,14 +459,17 @@ io.on("connection", (socket) => {
     emitRoom(room);
   });
 
-  socket.on("join_room", ({ code, name }) => {
+  socket.on("join_room", ({ code, name, profile }) => {
     code = String(code || "").trim().toUpperCase();
     const room = rooms.get(code);
     if (!room) return socket.emit("join_error", { message: "Room not found." });
     if (room.mode !== "multi") return socket.emit("join_error", { message: "Not a multiplayer room." });
     if (room.players.length >= 2) return socket.emit("join_error", { message: "Room is full." });
 
-    room.players.push({ id: socket.id, name: name || "Player 2", ready: false, locked: false, correct: false, wins: 0 });
+    room.players.push({
+      id: socket.id, name: name || "Player 2", ready: false, locked: false, correct: false, wins: 0,
+      rank: normalizeRank(profile)
+    });
     socket.join(code);
 
     socket.emit("joined_room", { code, youId: socket.id, isHost: false, room: snapshot(room) });
@@ -348,9 +488,7 @@ io.on("connection", (socket) => {
     emitRoom(room);
 
     if (!room.match.started && bothReady(room)) {
-      room.match.roundIndex = 0;
-      for (const pl of room.players) pl.wins = 0;
-      startRound(room);
+      startMatch(room);
     }
   });
 
@@ -363,13 +501,21 @@ io.on("connection", (socket) => {
     if (!p || p.locked) return;
 
     p.locked = true;
-    p.correct = answersMatch(answer, room.match.q.answer);
+    p.gaveUp = false;
+    p.answerText = String(answer ?? "");
+    p.correct = answersMatch(p.answerText, room.match.q.answer);
+    p.lockMs = Date.now() - room.match.roundStartMs;
 
-    io.to(code).emit("lock_update", { playerId: p.id, locked: true, correct: p.correct });
+    io.to(code).emit("lock_update", {
+      playerId: p.id,
+      locked: true,
+      correct: p.correct,
+      gaveUp: false
+    });
 
     if (bothLocked(room)) {
       const winnerId = pickRoundWinner(room);
-      endRound(room, winnerId);
+      endRound(room, winnerId, "locked");
     }
   });
 
@@ -382,13 +528,21 @@ io.on("connection", (socket) => {
     if (!p || p.locked) return;
 
     p.locked = true;
+    p.gaveUp = true;
+    p.answerText = "";
     p.correct = false;
+    p.lockMs = Date.now() - room.match.roundStartMs;
 
-    io.to(code).emit("lock_update", { playerId: p.id, locked: true, correct: false });
+    io.to(code).emit("lock_update", {
+      playerId: p.id,
+      locked: true,
+      correct: false,
+      gaveUp: true
+    });
 
     if (bothLocked(room)) {
       const winnerId = pickRoundWinner(room);
-      endRound(room, winnerId);
+      endRound(room, winnerId, "locked");
     }
   });
 
